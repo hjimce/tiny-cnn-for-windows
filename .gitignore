@@ -1,0 +1,7 @@
+*.ipch
+tn/x64/Release/tn.tlog/tn.lastbuildstate
+tn/x64/Release/tn.tlog/
+*.idb
+tn/x64/
+*.opendb
+*.db
