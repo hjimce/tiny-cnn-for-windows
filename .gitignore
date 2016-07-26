@@ -5,3 +5,5 @@ tn/x64/Release/tn.tlog/
 tn/x64/
 *.opendb
 *.db
+*.caffemodel
+*.binaryproto

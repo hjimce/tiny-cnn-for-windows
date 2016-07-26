@@ -84,8 +84,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>F:\tiny-cnn-for-windows\tn;C:\Program Files\opencv\build\include;$(IncludePath)</IncludePath>
-    <LibraryPath>F:\tiny-cnn-for-windows\tn\lib;C:\Program Files\opencv\build\x64\vc12\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>D:\workspace\tiny-cnn-for-windows\tn;C:\Program Files\opencv\build\include;$(IncludePath)</IncludePath>
+    <LibraryPath>D:\workspace\tiny-cnn-for-windows\tn\lib;C:\Program Files\opencv\build\x64\vc12\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

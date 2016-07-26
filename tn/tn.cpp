@@ -60,6 +60,26 @@ using namespace std;
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
+//跟caffe 的random crop接轨
+cv::Mat stdcrop(cv::Mat image, int cropwidth, int cropheight)
+{
+	//为了跟caffe的random crop接轨，得到相同的结果，我们采用
+	int offx = (image.cols - cropwidth) / 2.;
+	int offy = (image.rows - cropheight) / 2.;
+	if (offx >= 0 && offy >= 0)
+	{
+		cv::Rect crop(offx, offy, cropwidth, cropheight);
+		return image(crop);
+	}
+	else
+	{
+		return cv::Mat(cv::Size(cropwidth, cropheight), image.type(), cv::mean(image));
+	}
+
+}
+
+
+
 cv::Mat compute_mean(const string& mean_file, int width, int height)
 {
 	caffe::BlobProto blob;
@@ -74,7 +94,19 @@ cv::Mat compute_mean(const string& mean_file, int width, int height)
 	cv::Mat mean;
 	cv::merge(channels, mean);
 
-	return cv::Mat(cv::Size(width, height), mean.type(), cv::mean(mean));
+	return stdcrop(mean,width,height);
+
+	//
+}
+//对图片进行裁剪
+cv::Mat readimage(const string& image_file, int width, int height,int cropwidth,int cropheigt)
+{
+	cv::Mat img = cv::imread(image_file, -1);
+	cv::Size geometry(width, height);
+	// resize
+	cv::Mat sample_resized;
+	cv::resize(img, sample_resized, geometry);
+	return stdcrop(sample_resized, cropwidth, cropheigt);
 }
 
 cv::ColorConversionCodes get_cvt_codes(int src_channels, int dst_channels)
@@ -88,8 +120,8 @@ cv::ColorConversionCodes get_cvt_codes(int src_channels, int dst_channels)
 	else
 		throw runtime_error("unsupported color code");
 }
-
-void preprocess(const cv::Mat& img,const cv::Mat& mean,int num_channels,cv::Size geometry,vector<cv::Mat>* input_channels)
+//均值归一化处理
+void preprocess(const cv::Mat& img,const cv::Mat& mean,int num_channels,vector<cv::Mat>* input_channels)
 {
 	cv::Mat sample;
 
@@ -99,12 +131,10 @@ void preprocess(const cv::Mat& img,const cv::Mat& mean,int num_channels,cv::Size
 	else
 		sample = img;
 
-	// resize
-	cv::Mat sample_resized;
-	cv::resize(sample, sample_resized, geometry);
+
 
 	cv::Mat sample_float;
-	sample_resized.convertTo(sample_float, num_channels == 3 ? CV_32FC3 : CV_32FC1);
+	sample.convertTo(sample_float, num_channels == 3 ? CV_32FC3 : CV_32FC1);
 
 	// subtract mean
 	if (mean.size().width > 0) {
@@ -148,73 +178,78 @@ void load_validation_data(const std::string& validation_file,
 }
 
 void test(const string& model_file,const string& trained_file,const string& mean_file,
-	const string& label_file,
-	const string& img_file)
+	const string& label_file,const string& img_file)
 {
+	int orisize = 45;
+	int cropsize = 39;
+	auto mean = compute_mean(mean_file, cropsize, cropsize);
+	cv::Mat img = readimage(img_file, orisize, orisize, cropsize, cropsize);
 
+
+
+
+
+
+//模型、参数加载
 	auto labels = get_label_list(label_file);
-
-	auto net = create_net_from_caffe_prototxt(model_file,shape3d(39,39,3));
-
+	auto net = create_net_from_caffe_prototxt(model_file,shape3d(cropsize, cropsize,3));
+	//net->fast_load("model/cifar-weights");
 	reload_weight_from_caffe_protobinary(trained_file, net.get());
-
 	int channels = (*net)[0]->in_data_shape()[0].depth_;
 	int width = (*net)[0]->in_data_shape()[0].width_;
 	int height = (*net)[0]->in_data_shape()[0].height_;
 
-	std::vector<std::pair<std::string, int>> validation(1);
-	load_validation_data(img_file, &validation);
 
-	auto mean = compute_mean(mean_file, width, height);
-
-	for (size_t i = 0; i < validation.size(); ++i) {
-
-		cv::Mat img = cv::imread(img_file, -1);
-		//cv::Mat img = cv::imread(validation[i].first, -1);
-
-		vector<float> inputvec(width*height*channels);
-		vector<cv::Mat> input_channels;
-
-		for (int i = 0; i < channels; i++)
-			input_channels.emplace_back(height, width, CV_32FC1, &inputvec[width*height*i]);
-
-		preprocess(img, mean, 3, cv::Size(width, height), &input_channels);
-
-		vector<tiny_cnn::float_t> vec(inputvec.begin(), inputvec.end());
-
-		clock_t begin = clock();
-
-		auto result = net->predict(vec);
-
-		clock_t end = clock();
-		double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
-		cout << "Elapsed time(s): " << elapsed_secs << endl;
-
-		vector<tiny_cnn::float_t> sorted(result.begin(), result.end());
-
-		int top_n = 2;
-		partial_sort(sorted.begin(), sorted.begin() + top_n, sorted.end(), greater<tiny_cnn::float_t>());
-
-		for (int i = 0; i < top_n; i++) {
-			size_t idx = distance(result.begin(), find(result.begin(), result.end(), sorted[i]));
-			cout << labels[idx] << "," << sorted[i] << endl;
-		}
+//数据处理、归一化
+	vector<float> inputvec(width*height*channels);
+	vector<cv::Mat> input_channels;
+	for (int i = 0; i < channels; i++)
+	{
+		input_channels.emplace_back(height, width, CV_32FC1, &inputvec[width*height*i]);
 	}
+	preprocess(img, mean, 3, &input_channels);
+	vector<tiny_cnn::float_t> vec(inputvec.begin(), inputvec.end());
+
+//预测计算
+	clock_t begin = clock();
+	auto result = net->predict(vec);
+	clock_t end = clock();
+	double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
+	cout << "Elapsed time(s): " << elapsed_secs << endl;
+
+	vector<tiny_cnn::float_t> sorted(result.begin(), result.end());
+
+	int top_n = 2;
+	partial_sort(sorted.begin(), sorted.begin() + top_n, sorted.end(), greater<tiny_cnn::float_t>());
+
+	for (int i = 0; i < top_n; i++) {
+		size_t idx = distance(result.begin(), find(result.begin(), result.end(), sorted[i]));
+		cout << labels[idx] << "," << sorted[i] << endl;
+	}
+//	}
+/*
+	ofstream ofs("model/cifar-weights");
+	ofs << (*net);*/
 
 }
 
 int main(int argc, char** argv) {
-	/*int arg_channel = 1;
-	string model_file = argv[arg_channel++];
-	string trained_file = argv[arg_channel++];
-	string mean_file = argv[arg_channel++];
-	string label_file = argv[arg_channel++];
-	string img_file = argv[arg_channel++];*/
+
+
+
 	string model_file = "model/deploy.prototxt";
 	string trained_file = "model/1.caffemodel";
 	string mean_file = "model/imagenet_mean.binaryproto";
 	string label_file = "model/label.txt";
 	string img_file = "model/2.jpg";
+	
+
+/*
+	string model_file = "test/model/deploy.prototxt";
+	string trained_file = "test/model/1.caffemodel";
+	string mean_file = "test/model/imagenet_mean.binaryproto";
+	string label_file = "test/model/label.txt";
+	string img_file = "test/3.jpg";*/
 
 
 	test(model_file, trained_file, mean_file, label_file, img_file);
